@@ -1,106 +1,107 @@
 const express = require('express');
 const app = express();
-const server = require('http').createServer(app);
-const io = require('socket.io')(server, {
+const http = require('http').createServer(app);
+const io = require('socket.io')(http, {
   cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST"]
+    origin: ['https://science.mom', 'http://localhost:8000'],
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 const cors = require('cors');
-const { Chess } = require('chess.js');
 
-app.use(express.json());
-app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(express.static('../client/dist'));
-
-let state = {
-  fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-  moves: {},
-  voting: false,
-  countdown: null,
-  instructions: 'White to play - Find best move',
-  users: {}
-};
-
-app.get('/api/position', (req, res) => res.json({ fen: state.fen, voting: state.voting, countdown: state.countdown, instructions: state.instructions }));
-
-app.get('/api/users', (req, res) => res.json(state.users)); // New endpoint
-
-app.post('/api/fen', (req, res) => {
-  const chess = new Chess();
-  if (chess.load(req.body.fen)) {
-    state.fen = req.body.fen;
-    state.moves = {};
-    io.emit('fen-update', state.fen);
-    io.emit('moves-update', state.moves);
-    res.sendStatus(200);
-  } else {
-    res.sendStatus(400);
-  }
+// Log CORS requests for debugging
+app.use((req, res, next) => {
+  console.log(`Request from origin: ${req.headers.origin}`);
+  next();
 });
 
-app.post('/api/move', (req, res) => {
-  if (!state.voting) return res.sendStatus(403);
-  const { id, move, nickname } = req.body;
-  const chess = new Chess(state.fen);
-  const legalMove = chess.move({ from: move.slice(0, 2), to: move.slice(2, 4) });
-  if (!legalMove) return res.sendStatus(400);
-  
-  state.users[id] = nickname || id; // Update nickname, fallback to ID
-  for (const [existingMove, ids] of Object.entries(state.moves)) {
-    state.moves[existingMove] = ids.filter(v => v !== id);
-    if (state.moves[existingMove].length === 0) delete state.moves[existingMove];
-  }
-  state.moves[move] = state.moves[move] || [];
-  if (!state.moves[move].includes(id)) state.moves[move].push(id);
-  io.emit('moves-update', state.moves);
-  io.emit('users-update', state.users); // Broadcast updated users
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowedOrigins = ['https://science.mom', 'http://localhost:8000'];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
+
+app.use(express.json());
+
+let fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+let moves = {};
+let voting = false;
+let countdown = null;
+let instructions = 'White to play - Find best move';
+let users = {};
+
+app.get('/api/position', (req, res) => {
+  res.json({ fen, voting, countdown, instructions });
+});
+
+app.post('/api/fen', (req, res) => {
+  fen = req.body.fen;
+  io.emit('fen-update', fen);
   res.sendStatus(200);
 });
 
-app.get('/api/moves', (req, res) => res.json(state.moves));
+app.post('/api/move', (req, res) => {
+  if (voting) {
+    const { id, move, nickname } = req.body;
+    if (nickname) users[id] = nickname;
+    moves[move] = moves[move] || [];
+    if (!moves[move].includes(id)) moves[move].push(id);
+    io.emit('moves-update', moves);
+    io.emit('users-update', users);
+  }
+  res.sendStatus(200);
+});
 
 app.post('/api/voting', (req, res) => {
-  state.voting = req.body.voting;
-  io.emit('voting-update', state.voting);
+  voting = req.body.voting;
+  io.emit('voting-update', voting);
   res.sendStatus(200);
 });
 
 app.post('/api/reset-votes', (req, res) => {
-  state.moves = {};
-  io.emit('moves-update', state.moves);
+  moves = {};
+  io.emit('moves-update', moves);
   res.sendStatus(200);
 });
 
 app.post('/api/start-countdown', (req, res) => {
-  state.voting = true;
-  io.emit('voting-update', true);
+  voting = true;
+  io.emit('voting-update', voting);
   let timeLeft = 10;
-  state.countdown = timeLeft;
-  io.emit('countdown-update', state.countdown);
-  const countdown = setInterval(() => {
+  countdown = timeLeft;
+  io.emit('countdown-update', countdown);
+  const countdownInterval = setInterval(() => {
     timeLeft--;
-    state.countdown = timeLeft >= 0 ? timeLeft : null;
-    io.emit('countdown-update', state.countdown);
-    if (timeLeft < 0) clearInterval(countdown);
+    countdown = timeLeft >= 0 ? timeLeft : null;
+    io.emit('countdown-update', countdown);
+    if (timeLeft < 0) clearInterval(countdownInterval);
   }, 1000);
   res.sendStatus(200);
 });
 
 app.post('/api/instructions', (req, res) => {
-  state.instructions = req.body.instructions;
-  io.emit('instructions-update', state.instructions);
+  instructions = req.body.instructions;
+  io.emit('instructions-update', instructions);
   res.sendStatus(200);
 });
 
 io.on('connection', (socket) => {
-  socket.emit('fen-update', state.fen);
-  socket.emit('voting-update', state.voting);
-  socket.emit('moves-update', state.moves);
-  socket.emit('countdown-update', state.countdown);
-  socket.emit('instructions-update', state.instructions);
-  socket.emit('users-update', state.users); // Send initial users on connect
+  console.log('Socket connected:', socket.id);
+  socket.emit('fen-update', fen);
+  socket.emit('moves-update', moves);
+  socket.emit('voting-update', voting);
+  socket.emit('countdown-update', countdown);
+  socket.emit('instructions-update', instructions);
+  socket.emit('users-update', users);
 });
 
-server.listen(3000, () => console.log('Server running on http://localhost:3000'));
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
