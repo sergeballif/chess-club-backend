@@ -3,7 +3,7 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
   cors: {
-    origin: ['https://science.mom', 'http://localhost:8000'],
+    origin: ['https://science.mom', 'http://localhost:8000', 'http://localhost:5173'],
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -18,7 +18,7 @@ app.use((req, res, next) => {
 
 app.use(cors({
   origin: (origin, callback) => {
-    const allowedOrigins = ['https://science.mom', 'http://localhost:8000'];
+    const allowedOrigins = ['https://science.mom', 'http://localhost:8000', 'http://localhost:5173'];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
