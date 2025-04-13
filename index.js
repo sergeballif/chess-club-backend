@@ -84,8 +84,10 @@ app.post('/api/start-game-mode', (req, res) => {
   gameMode = true;
   gameModeSeconds = req.body.seconds || 10;
   voting = true;
+  moves = {}; // Clear moves on game mode start
   io.emit('voting-update', voting);
   io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+  io.emit('moves-update', moves);
   startGameModeCountdown();
   res.sendStatus(200);
 });
