@@ -43,7 +43,7 @@ let gameModeSeconds = 10;
 let countdownInterval = null;
 
 app.get('/api/position', (req, res) => {
-  res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds });
+  res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation });
 });
 
 app.post('/api/fen', (req, res) => {
