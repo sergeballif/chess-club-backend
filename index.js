@@ -50,8 +50,8 @@ app.post('/api/fen', (req, res) => {
   console.log('FEN update:', req.body.fen);
   fen = req.body.fen;
   moves = {};
-  io.emit('fen-update', fen);
   io.emit('moves-update', moves);
+  io.emit('fen-update', fen);
   res.sendStatus(200);
 });
 
@@ -73,6 +73,10 @@ app.post('/api/voting', (req, res) => {
     voting = req.body.voting;
     console.log('Voting update:', voting);
     io.emit('voting-update', voting);
+    if (!voting) {
+      moves = {};
+      io.emit('moves-update', moves);
+    }
   }
   res.sendStatus(200);
 });
@@ -88,7 +92,7 @@ app.post('/api/start-game-mode', (req, res) => {
   console.log('Starting game mode:', req.body.seconds);
   gameMode = true;
   gameModeSeconds = req.body.seconds || 10;
-  voting = true;
+  voting = true; // Enable voting for moves
   moves = {};
   io.emit('voting-update', voting);
   io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
@@ -100,10 +104,14 @@ app.post('/api/start-game-mode', (req, res) => {
 app.post('/api/end-game-mode', (req, res) => {
   console.log('Ending game mode');
   gameMode = false;
+  voting = false;
   countdown = null;
   if (countdownInterval) clearInterval(countdownInterval);
+  moves = {};
   io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+  io.emit('voting-update', voting);
   io.emit('countdown-update', countdown);
+  io.emit('moves-update', moves);
   res.sendStatus(200);
 });
 
@@ -158,8 +166,8 @@ function applyMostVotedMove() {
       fen = chess.fen();
       moves = {};
       console.log('New FEN:', fen);
-      io.emit('fen-update', fen);
       io.emit('moves-update', moves);
+      io.emit('fen-update', fen);
     }
   }
 }
