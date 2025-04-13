@@ -50,8 +50,8 @@ app.post('/api/fen', (req, res) => {
   console.log('FEN update:', req.body.fen);
   fen = req.body.fen;
   moves = {};
-  io.emit('fen-update', fen);
   io.emit('moves-update', moves);
+  setTimeout(() => io.emit('fen-update', fen), 100); // Delay to ensure order
   res.sendStatus(200);
 });
 
@@ -146,7 +146,7 @@ function applyMostVotedMove() {
   let moveToPlay = null;
   if (Object.keys(moves).length > 0) {
     const sortedMoves = Object.entries(moves).sort((a, b) => b[1].length - a[1].length);
-    moveToPlay = sortedMoves[0][0]; // Top vote
+    moveToPlay = sortedMoves[0][0];
     console.log('Selected move:', moveToPlay);
   } else {
     const legalMoves = chess.moves({ verbose: true });
@@ -166,8 +166,8 @@ function applyMostVotedMove() {
       fen = chess.fen();
       moves = {};
       console.log('New FEN:', fen);
-      io.emit('fen-update', fen);
       io.emit('moves-update', moves);
+      setTimeout(() => io.emit('fen-update', fen), 100); // Delay to ensure order
     }
   }
 }
