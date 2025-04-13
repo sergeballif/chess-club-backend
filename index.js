@@ -10,7 +10,6 @@ const io = require('socket.io')(http, {
 });
 const cors = require('cors');
 
-// Log CORS requests for debugging
 app.use((req, res, next) => {
   console.log(`Request from origin: ${req.headers.origin}`);
   next();
