@@ -47,6 +47,7 @@ app.get('/api/position', (req, res) => {
 });
 
 app.post('/api/fen', (req, res) => {
+  console.log('FEN update:', req.body.fen);
   fen = req.body.fen;
   moves = {};
   io.emit('fen-update', fen);
@@ -57,6 +58,7 @@ app.post('/api/fen', (req, res) => {
 app.post('/api/move', (req, res) => {
   if (voting) {
     const { id, move, nickname } = req.body;
+    console.log('Move received:', { id, move, nickname });
     if (nickname) users[id] = nickname;
     moves[move] = moves[move] || [];
     if (!moves[move].includes(id)) moves[move].push(id);
@@ -69,22 +71,25 @@ app.post('/api/move', (req, res) => {
 app.post('/api/voting', (req, res) => {
   if (!gameMode) {
     voting = req.body.voting;
+    console.log('Voting update:', voting);
     io.emit('voting-update', voting);
   }
   res.sendStatus(200);
 });
 
 app.post('/api/reset-votes', (req, res) => {
+  console.log('Resetting votes');
   moves = {};
   io.emit('moves-update', moves);
   res.sendStatus(200);
 });
 
 app.post('/api/start-game-mode', (req, res) => {
+  console.log('Starting game mode:', req.body.seconds);
   gameMode = true;
   gameModeSeconds = req.body.seconds || 10;
   voting = true;
-  moves = {}; // Clear moves on game mode start
+  moves = {};
   io.emit('voting-update', voting);
   io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
   io.emit('moves-update', moves);
@@ -93,6 +98,7 @@ app.post('/api/start-game-mode', (req, res) => {
 });
 
 app.post('/api/end-game-mode', (req, res) => {
+  console.log('Ending game mode');
   gameMode = false;
   countdown = null;
   if (countdownInterval) clearInterval(countdownInterval);
@@ -103,6 +109,7 @@ app.post('/api/end-game-mode', (req, res) => {
 
 app.post('/api/game-mode-countdown', (req, res) => {
   const seconds = req.body.seconds || gameModeSeconds;
+  console.log('Starting countdown:', seconds);
   startGameModeCountdown(seconds);
   res.sendStatus(200);
 });
@@ -115,6 +122,7 @@ function startGameModeCountdown(seconds = gameModeSeconds) {
   countdownInterval = setInterval(() => {
     timeLeft--;
     countdown = timeLeft >= 0 ? timeLeft : null;
+    console.log('Countdown tick:', countdown);
     io.emit('countdown-update', countdown);
     if (timeLeft < 0) {
       clearInterval(countdownInterval);
@@ -125,16 +133,19 @@ function startGameModeCountdown(seconds = gameModeSeconds) {
 }
 
 function applyMostVotedMove() {
+  console.log('Applying most voted move, current moves:', moves);
   const chess = new Chess(fen);
   let moveToPlay = null;
   if (Object.keys(moves).length > 0) {
     const sortedMoves = Object.entries(moves).sort((a, b) => b[1].length - a[1].length);
     moveToPlay = sortedMoves[0][0]; // Top vote
+    console.log('Selected move:', moveToPlay);
   } else {
     const legalMoves = chess.moves({ verbose: true });
     if (legalMoves.length > 0) {
       const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
       moveToPlay = randomMove.from + randomMove.to + (randomMove.promotion || '');
+      console.log('Random move:', moveToPlay);
     }
   }
   if (moveToPlay) {
@@ -146,6 +157,7 @@ function applyMostVotedMove() {
     if (moveObj) {
       fen = chess.fen();
       moves = {};
+      console.log('New FEN:', fen);
       io.emit('fen-update', fen);
       io.emit('moves-update', moves);
     }
