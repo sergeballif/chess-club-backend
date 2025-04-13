@@ -9,6 +9,7 @@ const io = require('socket.io')(http, {
   }
 });
 const cors = require('cors');
+const { Chess } = require('chess.js');
 
 app.use((req, res, next) => {
   console.log(`Request from origin: ${req.headers.origin}`);
@@ -37,14 +38,19 @@ let countdown = null;
 let instructions = 'White to play - Find best move';
 let users = {};
 let studentOrientation = 'white';
+let gameMode = false;
+let gameModeSeconds = 10;
+let countdownInterval = null;
 
 app.get('/api/position', (req, res) => {
-  res.json({ fen, voting, countdown, instructions });
+  res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds });
 });
 
 app.post('/api/fen', (req, res) => {
   fen = req.body.fen;
+  moves = {};
   io.emit('fen-update', fen);
+  io.emit('moves-update', moves);
   res.sendStatus(200);
 });
 
@@ -61,8 +67,10 @@ app.post('/api/move', (req, res) => {
 });
 
 app.post('/api/voting', (req, res) => {
-  voting = req.body.voting;
-  io.emit('voting-update', voting);
+  if (!gameMode) {
+    voting = req.body.voting;
+    io.emit('voting-update', voting);
+  }
   res.sendStatus(200);
 });
 
@@ -72,20 +80,75 @@ app.post('/api/reset-votes', (req, res) => {
   res.sendStatus(200);
 });
 
-app.post('/api/start-countdown', (req, res) => {
+app.post('/api/start-game-mode', (req, res) => {
+  gameMode = true;
+  gameModeSeconds = req.body.seconds || 10;
   voting = true;
   io.emit('voting-update', voting);
-  let timeLeft = 10;
+  io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+  startGameModeCountdown();
+  res.sendStatus(200);
+});
+
+app.post('/api/end-game-mode', (req, res) => {
+  gameMode = false;
+  countdown = null;
+  if (countdownInterval) clearInterval(countdownInterval);
+  io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+  io.emit('countdown-update', countdown);
+  res.sendStatus(200);
+});
+
+app.post('/api/game-mode-countdown', (req, res) => {
+  const seconds = req.body.seconds || gameModeSeconds;
+  startGameModeCountdown(seconds);
+  res.sendStatus(200);
+});
+
+function startGameModeCountdown(seconds = gameModeSeconds) {
+  if (countdownInterval) clearInterval(countdownInterval);
+  let timeLeft = seconds;
   countdown = timeLeft;
   io.emit('countdown-update', countdown);
-  const countdownInterval = setInterval(() => {
+  countdownInterval = setInterval(() => {
     timeLeft--;
     countdown = timeLeft >= 0 ? timeLeft : null;
     io.emit('countdown-update', countdown);
-    if (timeLeft < 0) clearInterval(countdownInterval);
+    if (timeLeft < 0) {
+      clearInterval(countdownInterval);
+      applyMostVotedMove();
+      if (gameMode) startGameModeCountdown();
+    }
   }, 1000);
-  res.sendStatus(200);
-});
+}
+
+function applyMostVotedMove() {
+  const chess = new Chess(fen);
+  let moveToPlay = null;
+  if (Object.keys(moves).length > 0) {
+    const sortedMoves = Object.entries(moves).sort((a, b) => b[1].length - a[1].length);
+    moveToPlay = sortedMoves[0][0]; // Top vote
+  } else {
+    const legalMoves = chess.moves({ verbose: true });
+    if (legalMoves.length > 0) {
+      const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+      moveToPlay = randomMove.from + randomMove.to + (randomMove.promotion || '');
+    }
+  }
+  if (moveToPlay) {
+    const moveObj = chess.move({
+      from: moveToPlay.slice(0, 2),
+      to: moveToPlay.slice(2, 4),
+      promotion: moveToPlay.length === 5 ? moveToPlay[4] : undefined
+    });
+    if (moveObj) {
+      fen = chess.fen();
+      moves = {};
+      io.emit('fen-update', fen);
+      io.emit('moves-update', moves);
+    }
+  }
+}
 
 app.post('/api/instructions', (req, res) => {
   instructions = req.body.instructions;
@@ -108,6 +171,7 @@ io.on('connection', (socket) => {
   socket.emit('instructions-update', instructions);
   socket.emit('users-update', users);
   socket.emit('student-orientation-update', studentOrientation);
+  socket.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
 });
 
 const PORT = process.env.PORT || 3000;
