@@ -60,10 +60,30 @@ app.post('/api/move', (req, res) => {
     const { id, move, nickname } = req.body;
     console.log('Move received:', { id, move, nickname });
     if (nickname) users[id] = nickname;
+    // Remove student's previous vote
+    Object.keys(moves).forEach((key) => {
+      moves[key] = moves[key].filter((voteId) => voteId !== id);
+      if (moves[key].length === 0) delete moves[key];
+    });
+    // Add new vote
     moves[move] = moves[move] || [];
     if (!moves[move].includes(id)) moves[move].push(id);
     io.emit('moves-update', moves);
     io.emit('users-update', users);
+  }
+  res.sendStatus(200);
+});
+
+app.post('/api/retract', (req, res) => {
+  if (voting) {
+    const { id } = req.body;
+    console.log('Retract received:', { id });
+    // Remove student's vote
+    Object.keys(moves).forEach((key) => {
+      moves[key] = moves[key].filter((voteId) => voteId !== id);
+      if (moves[key].length === 0) delete moves[key];
+    });
+    io.emit('moves-update', moves);
   }
   res.sendStatus(200);
 });
