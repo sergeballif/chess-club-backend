@@ -51,7 +51,7 @@ app.post('/api/fen', (req, res) => {
   fen = req.body.fen;
   moves = {};
   io.emit('moves-update', moves);
-  setTimeout(() => io.emit('fen-update', fen), 100); // Delay to ensure order
+  setTimeout(() => io.emit('fen-update', fen), 200);
   res.sendStatus(200);
 });
 
@@ -167,7 +167,7 @@ function applyMostVotedMove() {
       moves = {};
       console.log('New FEN:', fen);
       io.emit('moves-update', moves);
-      setTimeout(() => io.emit('fen-update', fen), 100); // Delay to ensure order
+      setTimeout(() => io.emit('fen-update', fen), 200);
     }
   }
 }
