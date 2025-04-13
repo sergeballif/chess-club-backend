@@ -36,6 +36,7 @@ let voting = false;
 let countdown = null;
 let instructions = 'White to play - Find best move';
 let users = {};
+let studentOrientation = 'white';
 
 app.get('/api/position', (req, res) => {
   res.json({ fen, voting, countdown, instructions });
@@ -92,6 +93,12 @@ app.post('/api/instructions', (req, res) => {
   res.sendStatus(200);
 });
 
+app.post('/api/student-orientation', (req, res) => {
+  studentOrientation = studentOrientation === 'white' ? 'black' : 'white';
+  io.emit('student-orientation-update', studentOrientation);
+  res.sendStatus(200);
+});
+
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
   socket.emit('fen-update', fen);
@@ -100,6 +107,7 @@ io.on('connection', (socket) => {
   socket.emit('countdown-update', countdown);
   socket.emit('instructions-update', instructions);
   socket.emit('users-update', users);
+  socket.emit('student-orientation-update', studentOrientation);
 });
 
 const PORT = process.env.PORT || 3000;
