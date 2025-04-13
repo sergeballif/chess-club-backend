@@ -50,8 +50,8 @@ app.post('/api/fen', (req, res) => {
   console.log('FEN update:', req.body.fen);
   fen = req.body.fen;
   moves = {};
-  io.emit('moves-update', moves);
   io.emit('fen-update', fen);
+  io.emit('moves-update', moves);
   res.sendStatus(200);
 });
 
@@ -92,7 +92,7 @@ app.post('/api/start-game-mode', (req, res) => {
   console.log('Starting game mode:', req.body.seconds);
   gameMode = true;
   gameModeSeconds = req.body.seconds || 10;
-  voting = true; // Enable voting for moves
+  voting = true;
   moves = {};
   io.emit('voting-update', voting);
   io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
@@ -159,15 +159,15 @@ function applyMostVotedMove() {
   if (moveToPlay) {
     const moveObj = chess.move({
       from: moveToPlay.slice(0, 2),
-      to: moveToPlay.slice(2, 4),
+      to: moveToPlay.length === 5 ? moveToPlay.slice(2, 4) : moveToPlay.slice(2),
       promotion: moveToPlay.length === 5 ? moveToPlay[4] : undefined
     });
     if (moveObj) {
       fen = chess.fen();
       moves = {};
       console.log('New FEN:', fen);
-      io.emit('moves-update', moves);
       io.emit('fen-update', fen);
+      io.emit('moves-update', moves);
     }
   }
 }
