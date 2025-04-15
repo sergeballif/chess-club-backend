@@ -41,15 +41,25 @@ let studentOrientation = 'white';
 let gameMode = false;
 let gameModeSeconds = 10;
 let countdownInterval = null;
+let moveHistory = [];
 
 app.get('/api/position', (req, res) => {
-  res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation });
+  res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory });
 });
 
 app.post('/api/fen', (req, res) => {
   console.log('FEN update:', req.body.fen);
   fen = req.body.fen;
   moves = {};
+  if (req.body.san) {
+    const isWhite = req.body.isWhite;
+    const moveNumber = Math.floor(moveHistory.length / 2) + 1;
+    moveHistory.push({ fen, san: req.body.san, moveNumber, isWhite });
+    io.emit('move-history-update', moveHistory);
+  } else {
+    moveHistory = [];
+    io.emit('move-history-update', moveHistory);
+  }
   io.emit('moves-update', moves);
   setTimeout(() => io.emit('fen-update', fen), 200);
   res.sendStatus(200);
@@ -60,12 +70,10 @@ app.post('/api/move', (req, res) => {
     const { id, move, nickname } = req.body;
     console.log('Move received:', { id, move, nickname });
     if (nickname) users[id] = nickname;
-    // Remove student's previous vote
     Object.keys(moves).forEach((key) => {
       moves[key] = moves[key].filter((voteId) => voteId !== id);
       if (moves[key].length === 0) delete moves[key];
     });
-    // Add new vote
     moves[move] = moves[move] || [];
     if (!moves[move].includes(id)) moves[move].push(id);
     io.emit('moves-update', moves);
@@ -78,7 +86,6 @@ app.post('/api/retract', (req, res) => {
   if (voting) {
     const { id } = req.body;
     console.log('Retract received:', { id });
-    // Remove student's vote
     Object.keys(moves).forEach((key) => {
       moves[key] = moves[key].filter((voteId) => voteId !== id);
       if (moves[key].length === 0) delete moves[key];
@@ -185,8 +192,12 @@ function applyMostVotedMove() {
     if (moveObj) {
       fen = chess.fen();
       moves = {};
+      const isWhite = chess.turn() === 'b';
+      const moveNumber = Math.floor(moveHistory.length / 2) + 1;
+      moveHistory.push({ fen, san: moveObj.san, moveNumber, isWhite });
       console.log('New FEN:', fen);
       io.emit('moves-update', moves);
+      io.emit('move-history-update', moveHistory);
       setTimeout(() => io.emit('fen-update', fen), 200);
     }
   }
@@ -214,6 +225,7 @@ io.on('connection', (socket) => {
   socket.emit('users-update', users);
   socket.emit('student-orientation-update', studentOrientation);
   socket.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+  socket.emit('move-history-update', moveHistory);
 });
 
 const PORT = process.env.PORT || 3000;
