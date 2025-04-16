@@ -48,19 +48,26 @@ app.get('/api/position', (req, res) => {
 });
 
 app.post('/api/fen', (req, res) => {
-  console.log('FEN update:', req.body.fen);
+  console.log('FEN update:', req.body);
   fen = req.body.fen;
   moves = {};
-  if (req.body.san) {
-    const isWhite = req.body.isWhite;
+  const chess = new Chess(fen);
+  if (req.body.truncateToIndex !== undefined) {
+    const index = req.body.truncateToIndex;
+    moveHistory = moveHistory.slice(0, index + 1);
+    console.log('Move history truncated to index', index, ':', moveHistory);
+  } else if (req.body.san) {
+    const isWhite = chess.turn() === 'b';
     const moveNumber = Math.floor(moveHistory.length / 2) + 1;
-    moveHistory.push({ fen, san: req.body.san, moveNumber, isWhite });
-    io.emit('move-history-update', moveHistory);
+    const moveEntry = { fen, san: req.body.san, moveNumber, isWhite };
+    moveHistory.push(moveEntry);
+    console.log('Move history updated:', moveHistory);
   } else {
     moveHistory = [];
-    io.emit('move-history-update', moveHistory);
+    console.log('Move history cleared');
   }
   io.emit('moves-update', moves);
+  io.emit('move-history-update', moveHistory);
   setTimeout(() => io.emit('fen-update', fen), 200);
   res.sendStatus(200);
 });
@@ -194,8 +201,9 @@ function applyMostVotedMove() {
       moves = {};
       const isWhite = chess.turn() === 'b';
       const moveNumber = Math.floor(moveHistory.length / 2) + 1;
-      moveHistory.push({ fen, san: moveObj.san, moveNumber, isWhite });
-      console.log('New FEN:', fen);
+      const moveEntry = { fen, san: moveObj.san, moveNumber, isWhite };
+      moveHistory.push(moveEntry);
+      console.log('Move history updated:', moveHistory);
       io.emit('moves-update', moves);
       io.emit('move-history-update', moveHistory);
       setTimeout(() => io.emit('fen-update', fen), 200);
