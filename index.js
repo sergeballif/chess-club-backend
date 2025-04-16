@@ -30,8 +30,10 @@ let moveHistory = [];
 app.get('/api/position', (req, res) => {
   console.log('Backend /api/position:', { fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory: moveHistory.map(m => m.san) });
   const chess = new Chess();
-  if (!chess.validateFen(fen).valid) {
-    console.warn('Invalid server FEN:', fen, 'Resetting to default');
+  try {
+    chess.load(fen);
+  } catch (error) {
+    console.warn('Invalid server FEN:', fen, 'Resetting to default:', error.message);
     fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   }
   res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory });
@@ -41,7 +43,7 @@ app.post('/api/fen', (req, res) => {
   const { fen: newFen, san, isWhite, truncateToIndex } = req.body;
   console.log('Backend /api/fen received:', { newFen, san, isWhite, truncateToIndex });
   try {
-    if (!newFen || typeof newFen !== 'string' || newFen.trim().length < 20) {
+    if (!newFen || typeof newFen !== 'string' || newFen.trim().length < 10) {
       throw new Error('Invalid or empty FEN');
     }
     const cleanedFen = newFen.trim().replace(/\s+/g, ' ');
@@ -50,10 +52,6 @@ app.post('/api/fen', (req, res) => {
       throw new Error(`Invalid FEN format: expected 6 fields, got ${fenParts.length}`);
     }
     const chess = new Chess();
-    const validation = chess.validateFen(cleanedFen);
-    if (!validation.valid) {
-      throw new Error(`Invalid FEN: ${validation.error}`);
-    }
     chess.load(cleanedFen);
     fen = cleanedFen;
     if (chess.isGameOver()) {
