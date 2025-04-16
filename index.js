@@ -65,10 +65,13 @@ app.post('/api/fen', (req, res) => {
       io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
     }
     if (san && typeof san === 'string') {
-      const validTruncateIndex = Number.isInteger(truncateToIndex) && truncateToIndex >= 0 ? truncateToIndex : moveHistory.length;
+      const validTruncateIndex = Number.isInteger(truncateToIndex) && truncateToIndex >= -1 ? truncateToIndex + 1 : moveHistory.length;
       moveHistory = moveHistory.slice(0, validTruncateIndex);
       moveHistory.push({ fen: cleanedFen, san, isWhite: !!isWhite });
-      console.log('Move history updated:', moveHistory.map(m => m.san));
+      console.log('Move history updated:', moveHistory.map(m => ({ san: m.san, isWhite: m.isWhite })));
+    } else if (Number.isInteger(truncateToIndex) && truncateToIndex >= -1) {
+      moveHistory = moveHistory.slice(0, truncateToIndex + 1);
+      console.log('Move history truncated to index:', truncateToIndex, 'New history:', moveHistory.map(m => m.san));
     }
     console.log('FEN accepted:', cleanedFen);
     io.emit('fen-update', fen);
@@ -179,7 +182,10 @@ app.post('/api/student-orientation', (req, res) => {
 const applyMostVotedMove = () => {
   console.log('Backend applyMostVotedMove:', moves);
   const moveEntries = Object.entries(moves);
-  if (moveEntries.length === 0) return;
+  if (moveEntries.length === 0) {
+    console.log('No votes to apply');
+    return;
+  }
   const [mostVotedMove, userIds] = moveEntries.reduce((a, b) => (b[1].length > a[1].length ? b : a));
   console.log('Most voted move:', mostVotedMove, 'by', userIds.length, 'users');
   try {
@@ -195,7 +201,7 @@ const applyMostVotedMove = () => {
     if (move) {
       fen = chess.fen();
       moveHistory.push({ fen, san: move.san, isWhite: chess.turn() === 'b' });
-      console.log('Move applied:', move.san, 'New FEN:', fen, 'Move history:', moveHistory.map(m => m.san));
+      console.log('Move applied:', move.san, 'New FEN:', fen, 'Move history:', moveHistory.map(m => ({ san: m.san, isWhite: m.isWhite })));
       io.emit('fen-update', fen);
       io.emit('move-history-update', moveHistory);
       moves = {};
