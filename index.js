@@ -52,9 +52,11 @@ app.post('/api/fen', (req, res) => {
       throw new Error(`Invalid FEN format: expected 6 fields, got ${fenParts.length}`);
     }
     const chess = new Chess();
+    console.log('Backend chess.js version:', require('chess.js').version || 'unknown');
     chess.load(cleanedFen);
     fen = cleanedFen;
-    if (chess.isGameOver()) {
+    if (chess.game_over()) {
+      console.log('Game over detected for FEN:', cleanedFen);
       voting = false;
       countdown = null;
       gameMode = false;
@@ -68,6 +70,7 @@ app.post('/api/fen', (req, res) => {
       moveHistory.push({ fen: cleanedFen, san, isWhite: !!isWhite });
       console.log('Move history updated:', moveHistory.map(m => m.san));
     }
+    console.log('FEN accepted:', cleanedFen);
     io.emit('fen-update', fen);
     io.emit('move-history-update', moveHistory);
     res.json({ success: true });
@@ -197,7 +200,8 @@ const applyMostVotedMove = () => {
       io.emit('move-history-update', moveHistory);
       moves = {};
       io.emit('moves-update', moves);
-      if (chess.isGameOver()) {
+      if (chess.game_over()) {
+        console.log('Game over after move:', move.san);
         voting = false;
         countdown = null;
         gameMode = false;
