@@ -1,34 +1,19 @@
 const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http, {
-  cors: {
-    origin: ['https://science.mom', 'http://localhost:8000', 'http://localhost:5173'],
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
-});
+const http = require('http');
+const socketIo = require('socket.io');
 const cors = require('cors');
 const { Chess } = require('chess.js');
 
-app.use((req, res, next) => {
-  console.log(`Request from origin: ${req.headers.origin}`);
-  next();
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
 });
 
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowedOrigins = ['https://science.mom', 'http://localhost:8000', 'http://localhost:5173'];
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST'],
-  credentials: true
-}));
-
+app.use(cors());
 app.use(express.json());
 
 let fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -37,204 +22,214 @@ let voting = false;
 let countdown = null;
 let instructions = 'White to play - Find best move';
 let users = {};
-let studentOrientation = 'white';
 let gameMode = false;
 let gameModeSeconds = 10;
-let countdownInterval = null;
+let studentOrientation = 'white';
 let moveHistory = [];
 
 app.get('/api/position', (req, res) => {
+  console.log('Backend /api/position:', { fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory });
   res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory });
 });
 
 app.post('/api/fen', (req, res) => {
-  console.log('FEN update:', req.body);
-  fen = req.body.fen;
-  moves = {};
-  const chess = new Chess(fen);
-  if (req.body.truncateToIndex !== undefined) {
-    const index = req.body.truncateToIndex;
-    moveHistory = moveHistory.slice(0, index + 1);
-    console.log('Move history truncated to index', index, ':', moveHistory);
-  } else if (req.body.san) {
-    const isWhite = chess.turn() === 'b';
-    const moveNumber = Math.floor(moveHistory.length / 2) + 1;
-    const moveEntry = { fen, san: req.body.san, moveNumber, isWhite };
-    moveHistory.push(moveEntry);
-    console.log('Move history updated:', moveHistory);
-  } else {
-    moveHistory = [];
-    console.log('Move history cleared');
+  const { fen: newFen, san, isWhite, truncateToIndex } = req.body;
+  console.log('Backend /api/fen:', { newFen, san, isWhite, truncateToIndex });
+  try {
+    const chess = new Chess(newFen);
+    if (chess.isGameOver()) {
+      voting = false;
+      countdown = null;
+      gameMode = false;
+      io.emit('voting-update', voting);
+      io.emit('countdown-update', countdown);
+      io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+    }
+    fen = newFen;
+    if (san && Number.isInteger(truncateToIndex)) {
+      moveHistory = moveHistory.slice(0, truncateToIndex + 1);
+      moveHistory.push({ fen: newFen, san, isWhite });
+      console.log('Move history updated:', moveHistory.map(m => m.san));
+    } else if (san) {
+      moveHistory.push({ fen: newFen, san, isWhite });
+      console.log('Move history updated:', moveHistory.map(m => m.san));
+    }
+    io.emit('fen-update', fen);
+    io.emit('move-history-update', moveHistory);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Backend /api/fen error:', error);
+    res.status(400).json({ error: 'Invalid FEN' });
   }
-  io.emit('moves-update', moves);
-  io.emit('move-history-update', moveHistory);
-  setTimeout(() => io.emit('fen-update', fen), 200);
-  res.sendStatus(200);
 });
 
 app.post('/api/move', (req, res) => {
-  if (voting) {
-    const { id, move, nickname } = req.body;
-    console.log('Move received:', { id, move, nickname });
-    if (nickname) users[id] = nickname;
-    Object.keys(moves).forEach((key) => {
-      moves[key] = moves[key].filter((voteId) => voteId !== id);
-      if (moves[key].length === 0) delete moves[key];
-    });
+  const { move, userId } = req.body;
+  console.log('Backend /api/move:', { move, userId });
+  if (voting && move && userId) {
     moves[move] = moves[move] || [];
-    if (!moves[move].includes(id)) moves[move].push(id);
-    io.emit('moves-update', moves);
-    io.emit('users-update', users);
-  }
-  res.sendStatus(200);
-});
-
-app.post('/api/retract', (req, res) => {
-  if (voting) {
-    const { id } = req.body;
-    console.log('Retract received:', { id });
-    Object.keys(moves).forEach((key) => {
-      moves[key] = moves[key].filter((voteId) => voteId !== id);
-      if (moves[key].length === 0) delete moves[key];
-    });
-    io.emit('moves-update', moves);
-  }
-  res.sendStatus(200);
-});
-
-app.post('/api/voting', (req, res) => {
-  if (!gameMode) {
-    voting = req.body.voting;
-    console.log('Voting update:', voting);
-    io.emit('voting-update', voting);
-    if (!voting) {
-      moves = {};
+    if (!moves[move].includes(userId)) {
+      Object.keys(moves).forEach((m) => {
+        moves[m] = moves[m].filter((id) => id !== userId);
+        if (moves[m].length === 0) delete moves[m];
+      });
+      moves[move].push(userId);
+      console.log('Backend moves updated:', moves);
       io.emit('moves-update', moves);
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ error: 'User already voted for this move' });
     }
+  } else {
+    res.status(400).json({ error: 'Voting is not active or invalid move/userId' });
   }
-  res.sendStatus(200);
 });
 
 app.post('/api/reset-votes', (req, res) => {
-  console.log('Resetting votes');
+  console.log('Backend /api/reset-votes');
   moves = {};
   io.emit('moves-update', moves);
-  res.sendStatus(200);
+  res.json({ success: true });
 });
 
-app.post('/api/start-game-mode', (req, res) => {
-  console.log('Starting game mode:', req.body.seconds);
-  gameMode = true;
-  gameModeSeconds = req.body.seconds || 10;
-  voting = true;
-  moves = {};
+app.post('/api/voting', (req, res) => {
+  const { voting: newVoting } = req.body;
+  console.log('Backend /api/voting:', newVoting);
+  voting = newVoting;
+  if (!voting) {
+    countdown = null;
+    io.emit('countdown-update', countdown);
+  }
   io.emit('voting-update', voting);
-  io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
-  io.emit('moves-update', moves);
-  startGameModeCountdown();
-  res.sendStatus(200);
-});
-
-app.post('/api/end-game-mode', (req, res) => {
-  console.log('Ending game mode');
-  gameMode = false;
-  voting = false;
-  countdown = null;
-  if (countdownInterval) clearInterval(countdownInterval);
-  moves = {};
-  io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
-  io.emit('voting-update', voting);
-  io.emit('countdown-update', countdown);
-  io.emit('moves-update', moves);
-  res.sendStatus(200);
+  res.json({ success: true });
 });
 
 app.post('/api/game-mode-countdown', (req, res) => {
-  const seconds = req.body.seconds || gameModeSeconds;
-  console.log('Starting countdown:', seconds);
-  startGameModeCountdown(seconds);
-  res.sendStatus(200);
+  const { seconds } = req.body;
+  console.log('Backend /api/game-mode-countdown:', seconds);
+  countdown = seconds;
+  io.emit('countdown-update', countdown);
+  res.json({ success: true });
 });
 
-function startGameModeCountdown(seconds = gameModeSeconds) {
-  if (countdownInterval) clearInterval(countdownInterval);
-  let timeLeft = seconds;
-  countdown = timeLeft;
+app.post('/api/start-game-mode', (req, res) => {
+  const { seconds } = req.body;
+  console.log('Backend /api/start-game-mode:', seconds);
+  gameMode = true;
+  gameModeSeconds = seconds;
+  voting = true;
+  countdown = seconds;
+  io.emit('game-mode-update', { gameMode, seconds });
+  io.emit('voting-update', voting);
   io.emit('countdown-update', countdown);
-  countdownInterval = setInterval(() => {
-    timeLeft--;
-    countdown = timeLeft >= 0 ? timeLeft : null;
-    console.log('Countdown tick:', countdown);
-    io.emit('countdown-update', countdown);
-    if (timeLeft < 0) {
-      clearInterval(countdownInterval);
-      applyMostVotedMove();
-      if (gameMode) startGameModeCountdown();
-    }
-  }, 1000);
-}
+  res.json({ success: true });
+});
 
-function applyMostVotedMove() {
-  console.log('Applying most voted move, current moves:', moves);
-  const chess = new Chess(fen);
-  let moveToPlay = null;
-  if (Object.keys(moves).length > 0) {
-    const sortedMoves = Object.entries(moves).sort((a, b) => b[1].length - a[1].length);
-    moveToPlay = sortedMoves[0][0];
-    console.log('Selected move:', moveToPlay);
-  } else {
-    const legalMoves = chess.moves({ verbose: true });
-    if (legalMoves.length > 0) {
-      const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-      moveToPlay = randomMove.from + randomMove.to + (randomMove.promotion || '');
-      console.log('Random move:', moveToPlay);
-    }
-  }
-  if (moveToPlay) {
-    const moveObj = chess.move({
-      from: moveToPlay.slice(0, 2),
-      to: moveToPlay.length === 5 ? moveToPlay.slice(2, 4) : moveToPlay.slice(2),
-      promotion: moveToPlay.length === 5 ? moveToPlay[4] : undefined
-    });
-    if (moveObj) {
-      fen = chess.fen();
-      moves = {};
-      const isWhite = chess.turn() === 'b';
-      const moveNumber = Math.floor(moveHistory.length / 2) + 1;
-      const moveEntry = { fen, san: moveObj.san, moveNumber, isWhite };
-      moveHistory.push(moveEntry);
-      console.log('Move history updated:', moveHistory);
-      io.emit('moves-update', moves);
-      io.emit('move-history-update', moveHistory);
-      setTimeout(() => io.emit('fen-update', fen), 200);
-    }
-  }
-}
+app.post('/api/end-game-mode', (req, res) => {
+  console.log('Backend /api/end-game-mode');
+  gameMode = false;
+  voting = false;
+  countdown = null;
+  io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+  io.emit('voting-update', voting);
+  io.emit('countdown-update', countdown);
+  res.json({ success: true });
+});
 
 app.post('/api/instructions', (req, res) => {
-  instructions = req.body.instructions;
+  const { instructions: newInstructions } = req.body;
+  console.log('Backend /api/instructions:', newInstructions);
+  instructions = newInstructions;
   io.emit('instructions-update', instructions);
-  res.sendStatus(200);
+  res.json({ success: true });
+});
+
+app.post('/api/username', (req, res) => {
+  const { userId, username } = req.body;
+  console.log('Backend /api/username:', { userId, username });
+  users[userId] = username;
+  io.emit('users-update', users);
+  res.json({ success: true });
 });
 
 app.post('/api/student-orientation', (req, res) => {
+  console.log('Backend /api/student-orientation');
   studentOrientation = studentOrientation === 'white' ? 'black' : 'white';
   io.emit('student-orientation-update', studentOrientation);
-  res.sendStatus(200);
+  res.json({ success: true });
 });
 
+const applyMostVotedMove = () => {
+  console.log('Backend applyMostVotedMove:', moves);
+  const moveEntries = Object.entries(moves);
+  if (moveEntries.length === 0) return;
+  const [mostVotedMove, userIds] = moveEntries.reduce((a, b) => (b[1].length > a[1].length ? b : a));
+  console.log('Most voted move:', mostVotedMove, 'by', userIds.length, 'users');
+  try {
+    const chess = new Chess(fen);
+    const moveObj = {
+      from: mostVotedMove.slice(0, 2),
+      to: mostVotedMove.slice(2, 4)
+    };
+    if (mostVotedMove.length === 5) {
+      moveObj.promotion = mostVotedMove[4].toLowerCase();
+    }
+    const move = chess.move(moveObj);
+    if (move) {
+      fen = chess.fen();
+      moveHistory.push({ fen, san: move.san, isWhite: chess.turn() === 'b' });
+      console.log('Move applied:', move.san, 'New FEN:', fen, 'Move history:', moveHistory.map(m => m.san));
+      io.emit('fen-update', fen);
+      io.emit('move-history-update', moveHistory);
+      moves = {};
+      io.emit('moves-update', moves);
+      if (chess.isGameOver()) {
+        voting = false;
+        countdown = null;
+        gameMode = false;
+        io.emit('voting-update', voting);
+        io.emit('countdown-update', countdown);
+        io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
+      }
+    }
+  } catch (error) {
+    console.error('Backend applyMostVotedMove error:', error);
+  }
+};
+
+setInterval(() => {
+  if (countdown !== null && voting) {
+    countdown -= 1;
+    io.emit('countdown-update', countdown);
+    console.log('Backend countdown:', countdown);
+    if (countdown <= 0) {
+      if (gameMode) {
+        applyMostVotedMove();
+        countdown = gameModeSeconds;
+        io.emit('countdown-update', countdown);
+      } else {
+        countdown = null;
+        io.emit('countdown-update', countdown);
+      }
+    }
+  }
+}, 1000);
+
 io.on('connection', (socket) => {
-  console.log('Socket connected:', socket.id);
-  socket.emit('fen-update', fen);
-  socket.emit('moves-update', moves);
-  socket.emit('voting-update', voting);
-  socket.emit('countdown-update', countdown);
-  socket.emit('instructions-update', instructions);
-  socket.emit('users-update', users);
-  socket.emit('student-orientation-update', studentOrientation);
-  socket.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
-  socket.emit('move-history-update', moveHistory);
+  console.log('Backend socket connected:', socket.id);
+  socket.on('disconnect', () => {
+    console.log('Backend socket disconnected:', socket.id);
+    delete users[socket.id];
+    Object.keys(moves).forEach((move) => {
+      moves[move] = moves[move].filter((id) => id !== socket.id);
+      if (moves[move].length === 0) delete moves[move];
+    });
+    io.emit('moves-update', moves);
+    io.emit('users-update', users);
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
