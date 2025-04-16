@@ -28,15 +28,20 @@ let studentOrientation = 'white';
 let moveHistory = [];
 
 app.get('/api/position', (req, res) => {
-  console.log('Backend /api/position:', { fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory });
+  console.log('Backend /api/position:', { fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory: moveHistory.map(m => m.san) });
   res.json({ fen, voting, countdown, instructions, gameMode, gameModeSeconds, studentOrientation, moveHistory });
 });
 
 app.post('/api/fen', (req, res) => {
   const { fen: newFen, san, isWhite, truncateToIndex } = req.body;
-  console.log('Backend /api/fen:', { newFen, san, isWhite, truncateToIndex });
+  console.log('Backend /api/fen received:', { newFen, san, isWhite, truncateToIndex });
   try {
-    const chess = new Chess(newFen);
+    if (!newFen || typeof newFen !== 'string') {
+      throw new Error('Invalid or missing FEN');
+    }
+    const chess = new Chess();
+    chess.load(newFen);
+    fen = newFen;
     if (chess.isGameOver()) {
       voting = false;
       countdown = null;
@@ -45,21 +50,18 @@ app.post('/api/fen', (req, res) => {
       io.emit('countdown-update', countdown);
       io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
     }
-    fen = newFen;
-    if (san && Number.isInteger(truncateToIndex)) {
-      moveHistory = moveHistory.slice(0, truncateToIndex + 1);
-      moveHistory.push({ fen: newFen, san, isWhite });
-      console.log('Move history updated:', moveHistory.map(m => m.san));
-    } else if (san) {
-      moveHistory.push({ fen: newFen, san, isWhite });
+    if (san && typeof san === 'string') {
+      const validTruncateIndex = Number.isInteger(truncateToIndex) && truncateToIndex >= 0 ? truncateToIndex : moveHistory.length - 1;
+      moveHistory = moveHistory.slice(0, validTruncateIndex + 1);
+      moveHistory.push({ fen: newFen, san, isWhite: !!isWhite });
       console.log('Move history updated:', moveHistory.map(m => m.san));
     }
     io.emit('fen-update', fen);
     io.emit('move-history-update', moveHistory);
     res.json({ success: true });
   } catch (error) {
-    console.error('Backend /api/fen error:', error);
-    res.status(400).json({ error: 'Invalid FEN' });
+    console.error('Backend /api/fen error:', error.message, 'Payload:', req.body);
+    res.status(400).json({ error: error.message || 'Invalid FEN or payload' });
   }
 });
 
@@ -191,9 +193,11 @@ const applyMostVotedMove = () => {
         io.emit('countdown-update', countdown);
         io.emit('game-mode-update', { gameMode, seconds: gameModeSeconds });
       }
+    } else {
+      console.error('Invalid move in applyMostVotedMove:', mostVotedMove);
     }
   } catch (error) {
-    console.error('Backend applyMostVotedMove error:', error);
+    console.error('Backend applyMostVotedMove error:', error.message, 'Move:', mostVotedMove);
   }
 };
 
