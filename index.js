@@ -46,11 +46,14 @@ io.on('connection', (socket) => {
 
     // Student submits a vote
     socket.on('submit_vote', ({ gameId, move, userId }) => {
-        if (!games[gameId]) return;
-        games[gameId].votes[userId] = move;
-        // Aggregate votes (move -> count)
-        const tally = aggregateVotes(games[gameId].votes);
-        io.to(gameId).emit('vote_tally', tally);
+      if (!games[gameId]) return;
+      games[gameId].votes[userId] = move;
+      // Only emit vote tally if not in Observation Mode
+      if (games[gameId].mode.mode !== 'observe') {
+          const tally = aggregateVotes(games[gameId].votes);
+          io.to(gameId).emit('vote_tally', tally);
+      }
+      // In Observation Mode, do not emit vote_tally
     });
 
     // Teacher broadcasts board state
@@ -68,6 +71,12 @@ io.on('connection', (socket) => {
         if (!games[gameId]) return;
         games[gameId].mode = { mode, reveal };
         io.to(gameId).emit('mode_update', games[gameId].mode);
+        // If entering Observation Mode, clear vote tally for students
+        if (mode === 'observe') {
+            io.to(gameId).emit('vote_tally', aggregateVotes({}));
+        } else {
+            io.to(gameId).emit('vote_tally', aggregateVotes(games[gameId].votes));
+        }
     });
 
     socket.on('disconnect', () => {
