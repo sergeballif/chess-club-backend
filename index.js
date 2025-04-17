@@ -1,4 +1,5 @@
 // backend/index.js
+const { Chess } = require('chess.js');
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -27,7 +28,13 @@ io.on('connection', (socket) => {
     socket.on('join_game', ({ gameId, userId, name }) => {
         socket.join(gameId);
         if (!games[gameId]) {
-            games[gameId] = { votes: {}, names: {}, board: {}, mode: { mode: 'poll', reveal: false } };
+          const chess = new Chess();
+          games[gameId] = {
+              votes: {},
+              names: {},
+              board: { fen: chess.fen(), moveHistory: [] },
+              mode: { mode: 'poll', reveal: false }
+          };
         }
         games[gameId].names[userId] = name || userId;
         console.log(`User ${userId} (${games[gameId].names[userId]}) joined game ${gameId}`);
