@@ -26,7 +26,31 @@ io.on('connection', (socket) => {
     });
 
     // --- More event handlers will go here ---
+
+    // Student submits a vote
+  socket.on('submit_vote', ({ gameId, move, userId }) => {
+    // Store vote in memory or DB
+    // Aggregate votes for this gameId
+    // Broadcast updated tally to all clients in this game
+    io.to(gameId).emit('vote_tally', { votes: { e2e4: 3, d2d4: 2, ... } });
+  });
+
+  // Teacher broadcasts board state
+  socket.on('update_board', ({ gameId, fen, moveHistory }) => {
+    io.to(gameId).emit('board_update', { fen, moveHistory });
+  });
+
+  // Teacher sets mode or triggers reveal
+  socket.on('set_mode', ({ gameId, mode, reveal }) => {
+    io.to(gameId).emit('mode_update', { mode, reveal });
+  });
+
+  // Join game room for isolated events
+  socket.on('join_game', ({ gameId }) => {
+    socket.join(gameId);
+  });
 });
+
 
 server.listen(PORT, () => {
     console.log(`Server listening on *:${PORT}`);
