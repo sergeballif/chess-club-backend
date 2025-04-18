@@ -57,11 +57,14 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('board_update', { fen, moveHistory });
   });
 
+
+
   socket.on('submit_vote', ({ gameId, move, userId }) => {
     // Handle voting logic here (not implemented in this example)
     console.log(`Vote from user ${userId} for move ${move} in game ${gameId}`);
     // Optionally emit updated vote tally
-    // io.to(gameId).emit('vote_tally', { votes: ... });
+    io.to(gameId).emit('vote_tally', { votes: currentVoteTally });
+    console.log('[backend] Emitted vote_tally:', { votes: currentVoteTally });
   });
 
   socket.on('set_mode', ({ gameId, mode, reveal }) => {
@@ -80,3 +83,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`Server listening on *:${PORT}`);
 });
+
