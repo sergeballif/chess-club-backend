@@ -1,4 +1,6 @@
 // index.js (Node.js backend for chess-club)
+const { Chess } = require('chess.js'); // npm install chess.js
+
 
 const express = require('express');
 const http = require('http');
@@ -56,10 +58,12 @@ io.on('connection', (socket) => {
     }
   });
 
+  // On teacher move or update_board, reset timer/votes if in game mode
   socket.on('update_board', ({ gameId, fen, moveHistory }) => {
-    games[gameId] = { fen, moveHistory, votes: {} }; // Reset votes!
+    games[gameId] = { ...games[gameId], fen, moveHistory, votes: {} };
     io.to(gameId).emit('board_update', { fen, moveHistory });
-    io.to(gameId).emit('vote_tally', { votes: {} }); // Notify clients votes are cleared
+    io.to(gameId).emit('vote_tally', { votes: {} });
+    if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
 
@@ -86,12 +90,30 @@ io.on('connection', (socket) => {
     console.log('[backend] Emitted vote_tally:', { votes: games[gameId].votes });
   });
 
-  socket.on('set_mode', ({ gameId, mode, reveal }) => {
+  socket.on('set_mode', ({ gameId, mode, reveal, timerLength, revealTime }) => {
     if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {} };
     games[gameId].mode = mode;
     games[gameId].reveal = reveal;
+    if (mode === 'game') {
+      games[gameId].timerLength = timerLength || 10;
+      games[gameId].revealTime = revealTime || 3;
+      startGameTimer(gameId);
+    } else {
+      clearInterval(games[gameId].timerInterval);
+      games[gameId].votes = {};
+      games[gameId].reveal = false;
+      io.to(gameId).emit('mode_update', { mode, reveal: false });
+      io.to(gameId).emit('vote_tally', { votes: {} });
+    }
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
-    io.to(gameId).emit('mode_update', { mode, reveal });
+  });
+
+  // On teacher move or update_board, reset timer/votes if in game mode
+  socket.on('update_board', ({ gameId, fen, moveHistory }) => {
+    games[gameId] = { ...games[gameId], fen, moveHistory, votes: {} };
+    io.to(gameId).emit('board_update', { fen, moveHistory });
+    io.to(gameId).emit('vote_tally', { votes: {} });
+    if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
   socket.on('retract_vote', ({ gameId, move, userId }) => {
