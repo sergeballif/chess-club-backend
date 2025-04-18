@@ -1,11 +1,10 @@
 // index.js (Node.js backend for chess-club)
-const { Chess } = require('chess.js'); // npm install chess.js
-
 
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const { Chess } = require('chess.js'); // npm install chess.js
 
 // --- CONFIGURATION ---
 const PORT = process.env.PORT || 10000;
@@ -32,8 +31,71 @@ const io = new Server(server, {
   }
 });
 
-// --- IN-MEMORY GAME STATE (EXAMPLE) ---
-const games = {}; // { [gameId]: { fen, moveHistory: [], ... } }
+// --- IN-MEMORY GAME STATE ---
+const games = {}; // { [gameId]: { ... } }
+
+// --- GAME TIMER LOGIC ---
+function startGameTimer(gameId) {
+  const game = games[gameId];
+  if (!game) return;
+  clearInterval(game.timerInterval);
+  game.timer = game.timerLength || 10;
+  game.reveal = false;
+  io.to(gameId).emit('timer_update', { timer: game.timer });
+  io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
+
+  game.timerInterval = setInterval(() => {
+    game.timer -= 1;
+    io.to(gameId).emit('timer_update', { timer: game.timer });
+
+    if (game.timer === game.revealTime && !game.reveal) {
+      game.reveal = true;
+      io.to(gameId).emit('mode_update', { mode: 'game', reveal: true });
+    }
+
+    if (game.timer <= 0) {
+      clearInterval(game.timerInterval);
+      applyVotedMove(gameId);
+      // Restart timer for next move
+      startGameTimer(gameId);
+    }
+  }, 1000);
+}
+
+function applyVotedMove(gameId) {
+  const game = games[gameId];
+  if (!game) return;
+  const votes = game.votes || {};
+  let moveToApply = null;
+  // Find move with most votes
+  const entries = Object.entries(votes);
+  if (entries.length > 0) {
+    entries.sort((a, b) => b[1] - a[1]); // Descending
+    const topVotes = entries.filter(e => e[1] === entries[0][1]);
+    moveToApply = topVotes[0][0]; // Topmost if tie
+  }
+  const chess = new Chess(game.fen);
+  let moveObj = null;
+  if (moveToApply && chess.moves({ verbose: true }).some(m => (m.from + m.to + (m.promotion || '')) === moveToApply)) {
+    moveObj = chess.move({ from: moveToApply.slice(0,2), to: moveToApply.slice(2,4), promotion: moveToApply.slice(4) });
+  } else {
+    // No votes or invalid move, pick random legal move
+    const legal = chess.moves({ verbose: true });
+    if (legal.length > 0) {
+      const randMove = legal[Math.floor(Math.random() * legal.length)];
+      moveObj = chess.move(randMove);
+    }
+  }
+  if (moveObj) {
+    game.fen = chess.fen();
+    game.moveHistory = [...(game.moveHistory || []), moveObj.san];
+    game.votes = {};
+    game.reveal = false;
+    io.to(gameId).emit('board_update', { fen: game.fen, moveHistory: game.moveHistory });
+    io.to(gameId).emit('vote_tally', { votes: {} });
+    io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
+  }
+}
 
 // --- SOCKET.IO EVENTS ---
 io.on('connection', (socket) => {
@@ -48,17 +110,17 @@ io.on('connection', (socket) => {
         fen: games[gameId].fen,
         moveHistory: games[gameId].moveHistory,
       });
-      // NEW: Send mode/reveal to the joining user
       socket.emit('mode_update', {
         mode: games[gameId].mode ?? 'poll',
         reveal: games[gameId].reveal ?? false,
       });
-      // Also send current votes, if any
       socket.emit('vote_tally', { votes: games[gameId].votes ?? {} });
+      if (games[gameId].mode === 'game') {
+        socket.emit('timer_update', { timer: games[gameId].timer ?? games[gameId].timerLength ?? 10 });
+      }
     }
   });
 
-  // On teacher move or update_board, reset timer/votes if in game mode
   socket.on('update_board', ({ gameId, fen, moveHistory }) => {
     games[gameId] = { ...games[gameId], fen, moveHistory, votes: {} };
     io.to(gameId).emit('board_update', { fen, moveHistory });
@@ -66,26 +128,17 @@ io.on('connection', (socket) => {
     if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
-
-
   socket.on('submit_vote', ({ gameId, move, userId }) => {
-    // Ensure game state exists
     if (!games[gameId]) {
       games[gameId] = { fen: '', moveHistory: [], votes: {}, mode: 'poll', reveal: false };
     }
-    // Initialize votes object if missing
     if (!games[gameId].votes) {
       games[gameId].votes = {};
     }
-    // Increment vote count for this move
     if (!games[gameId].votes[move]) {
       games[gameId].votes[move] = 0;
     }
     games[gameId].votes[move] += 1;
-  
-    // Optionally: store which user voted for what, to prevent double-voting, etc.
-  
-    // Emit updated vote tally to all clients in the game
     io.to(gameId).emit('vote_tally', { votes: games[gameId].votes });
     console.log('[backend] Emitted vote_tally:', { votes: games[gameId].votes });
   });
@@ -106,14 +159,6 @@ io.on('connection', (socket) => {
       io.to(gameId).emit('vote_tally', { votes: {} });
     }
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
-  });
-
-  // On teacher move or update_board, reset timer/votes if in game mode
-  socket.on('update_board', ({ gameId, fen, moveHistory }) => {
-    games[gameId] = { ...games[gameId], fen, moveHistory, votes: {} };
-    io.to(gameId).emit('board_update', { fen, moveHistory });
-    io.to(gameId).emit('vote_tally', { votes: {} });
-    if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
   socket.on('retract_vote', ({ gameId, move, userId }) => {
@@ -138,4 +183,3 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`Server listening on *:${PORT}`);
 });
-
