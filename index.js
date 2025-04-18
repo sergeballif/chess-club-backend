@@ -90,9 +90,11 @@ function applyVotedMove(gameId) {
     game.fen = chess.fen();
     game.moveHistory = [...(game.moveHistory || []), moveObj.san];
     game.votes = {};
+    game.votesByMove = {};
+    game.userVotes = {};
     game.reveal = false;
     io.to(gameId).emit('board_update', { fen: game.fen, moveHistory: game.moveHistory });
-    io.to(gameId).emit('vote_tally', { votes: {} });
+    io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
     io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
   }
 }
@@ -103,48 +105,89 @@ io.on('connection', (socket) => {
 
   socket.on('join_game', ({ gameId, userId, name }) => {
     socket.join(gameId);
-    console.log(`User ${userId} (${name}) joined game ${gameId} (socket: ${socket.id})`);
+    if (!games[gameId]) {
+      games[gameId] = {
+        fen: new Chess().fen(),
+        moveHistory: [],
+        votes: {},
+        votesByMove: {},
+        userVotes: {},
+        userNames: {},
+        mode: 'poll',
+        reveal: false
+      };
+    }
+    // Track name
+    if (name) games[gameId].userNames[userId] = name;
     // Send current game state to the new user
-    if (games[gameId]) {
-      socket.emit('board_update', {
-        fen: games[gameId].fen,
-        moveHistory: games[gameId].moveHistory,
-      });
-      socket.emit('mode_update', {
-        mode: games[gameId].mode ?? 'poll',
-        reveal: games[gameId].reveal ?? false,
-      });
-      socket.emit('vote_tally', { votes: games[gameId].votes ?? {} });
-      if (games[gameId].mode === 'game') {
-        socket.emit('timer_update', { timer: games[gameId].timer ?? games[gameId].timerLength ?? 10 });
-      }
+    socket.emit('board_update', {
+      fen: games[gameId].fen,
+      moveHistory: games[gameId].moveHistory,
+    });
+    socket.emit('mode_update', {
+      mode: games[gameId].mode ?? 'poll',
+      reveal: games[gameId].reveal ?? false,
+    });
+    socket.emit('vote_tally', {
+      votes: games[gameId].votes ?? {},
+      votesByMove: games[gameId].votesByMove ?? {}
+    });
+    if (games[gameId].mode === 'game') {
+      socket.emit('timer_update', { timer: games[gameId].timer ?? games[gameId].timerLength ?? 10 });
     }
   });
 
   socket.on('update_board', ({ gameId, fen, moveHistory }) => {
-    games[gameId] = { ...games[gameId], fen, moveHistory, votes: {} };
+    games[gameId] = {
+      ...games[gameId],
+      fen,
+      moveHistory,
+      votes: {},
+      votesByMove: {},
+      userVotes: {}
+    };
     io.to(gameId).emit('board_update', { fen, moveHistory });
-    io.to(gameId).emit('vote_tally', { votes: {} });
+    io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
     if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
-  socket.on('submit_vote', ({ gameId, move, userId }) => {
+  socket.on('submit_vote', ({ gameId, move, userId, name }) => {
     if (!games[gameId]) {
-      games[gameId] = { fen: '', moveHistory: [], votes: {}, mode: 'poll', reveal: false };
+      games[gameId] = {
+        fen: '',
+        moveHistory: [],
+        votes: {},
+        votesByMove: {},
+        userVotes: {},
+        userNames: {},
+        mode: 'poll',
+        reveal: false
+      };
     }
-    if (!games[gameId].votes) {
-      games[gameId].votes = {};
+    const game = games[gameId];
+    if (name) game.userNames[userId] = name;
+
+    // Remove previous vote (if any)
+    const prevMove = game.userVotes[userId];
+    if (prevMove) {
+      if (game.votes[prevMove]) game.votes[prevMove] -= 1;
+      if (game.votesByMove[prevMove]) game.votesByMove[prevMove] = game.votesByMove[prevMove].filter(n => n !== game.userNames[userId]);
+      if (game.votes[prevMove] <= 0) delete game.votes[prevMove];
+      if (game.votesByMove[prevMove] && game.votesByMove[prevMove].length === 0) delete game.votesByMove[prevMove];
     }
-    if (!games[gameId].votes[move]) {
-      games[gameId].votes[move] = 0;
-    }
-    games[gameId].votes[move] += 1;
-    io.to(gameId).emit('vote_tally', { votes: games[gameId].votes });
-    console.log('[backend] Emitted vote_tally:', { votes: games[gameId].votes });
+
+    // Add new vote
+    game.votes[move] = (game.votes[move] || 0) + 1;
+    if (!game.votesByMove[move]) game.votesByMove[move] = [];
+    if (!game.votesByMove[move].includes(game.userNames[userId])) game.votesByMove[move].push(game.userNames[userId]);
+    game.userVotes[userId] = move;
+
+    io.to(gameId).emit('vote_tally', { votes: game.votes, votesByMove: game.votesByMove });
+    console.log('[backend] Emitted vote_tally:', { votes: game.votes, votesByMove: game.votesByMove });
   });
 
   socket.on('set_mode', ({ gameId, mode, reveal, timerLength, revealTime }) => {
-    if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {} };
+    if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {} };
     games[gameId].mode = mode;
     games[gameId].reveal = reveal;
     if (mode === 'game') {
@@ -154,23 +197,28 @@ io.on('connection', (socket) => {
     } else {
       clearInterval(games[gameId].timerInterval);
       games[gameId].votes = {};
+      games[gameId].votesByMove = {};
+      games[gameId].userVotes = {};
       games[gameId].reveal = false;
       io.to(gameId).emit('mode_update', { mode, reveal: false });
-      io.to(gameId).emit('vote_tally', { votes: {} });
+      io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
     }
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
   });
 
   socket.on('retract_vote', ({ gameId, move, userId }) => {
-    if (!games[gameId] || !games[gameId].votes) return;
-    if (games[gameId].votes[move]) {
-      games[gameId].votes[move] -= 1;
-      if (games[gameId].votes[move] <= 0) {
-        delete games[gameId].votes[move];
-      }
-      io.to(gameId).emit('vote_tally', { votes: games[gameId].votes });
-      console.log('[backend] Vote retracted:', { move, votes: games[gameId].votes });
+    const game = games[gameId];
+    if (!game || !game.votes || !game.userVotes) return;
+    const userMove = game.userVotes[userId];
+    if (userMove && game.votes[userMove]) {
+      game.votes[userMove] -= 1;
+      if (game.votes[userMove] <= 0) delete game.votes[userMove];
+      if (game.votesByMove[userMove]) game.votesByMove[userMove] = game.votesByMove[userMove].filter(n => n !== game.userNames[userId]);
+      if (game.votesByMove[userMove] && game.votesByMove[userMove].length === 0) delete game.votesByMove[userMove];
+      delete game.userVotes[userId];
     }
+    io.to(gameId).emit('vote_tally', { votes: game.votes, votesByMove: game.votesByMove });
+    console.log('[backend] Vote retracted:', { move, votes: game.votes, votesByMove: game.votesByMove });
   });
 
   socket.on('disconnect', () => {
