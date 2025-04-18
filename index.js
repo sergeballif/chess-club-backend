@@ -196,12 +196,9 @@ io.on('connection', (socket) => {
       startGameTimer(gameId);
     } else {
       clearInterval(games[gameId].timerInterval);
-      games[gameId].votes = {};
-      games[gameId].votesByMove = {};
-      games[gameId].userVotes = {};
-      games[gameId].reveal = false;
-      io.to(gameId).emit('mode_update', { mode, reveal: false });
-      io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
+      games[gameId].reveal = reveal;
+      io.to(gameId).emit('mode_update', { mode, reveal });
+      // Do NOT clear votes or emit vote_tally here.
     }
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
   });
