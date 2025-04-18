@@ -1,100 +1,82 @@
-// backend/index.js
-const { Chess } = require('chess.js');
+// index.js (Node.js backend for chess-club)
+
 const express = require('express');
 const http = require('http');
-const { Server } = require("socket.io");
+const cors = require('cors');
+const { Server } = require('socket.io');
 
+// --- CONFIGURATION ---
+const PORT = process.env.PORT || 10000;
+const FRONTEND_ORIGINS = [
+  "http://localhost:5173", // local dev
+  "[https://your-frontend-url.com](https://your-frontend-url.com)", // replace with your actual deployed frontend
+];
+
+// --- EXPRESS SETUP ---
 const app = express();
+app.use(cors({
+  origin: FRONTEND_ORIGINS,
+  credentials: true,
+}));
+
 const server = http.createServer(app);
 
-// Configure Socket.IO with CORS settings
+// --- SOCKET.IO SETUP ---
 const io = new Server(server, {
-    cors: {
-        origin: "*", // Allow all origins for now (adjust for production later)
-        methods: ["GET", "POST"]
-    }
+  cors: {
+    origin: FRONTEND_ORIGINS,
+    methods: ["GET", "POST"],
+    credentials: true,
+  }
 });
 
-const PORT = process.env.PORT || 3000;
+// --- IN-MEMORY GAME STATE (EXAMPLE) ---
+const games = {}; // { [gameId]: { fen, moveHistory: [], ... } }
 
-// --- In-memory state (reset on server restart) ---
-const games = {}; // gameId -> { votes: { userId: move }, names: { userId: name }, board: { fen, moveHistory }, mode: { mode, reveal } }
-
-// --- Socket.IO event handlers ---
+// --- SOCKET.IO EVENTS ---
 io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+  console.log(`A user connected: ${socket.id}`);
 
-    // Join game room and register user
-    socket.on('join_game', ({ gameId, userId, name }) => {
-        socket.join(gameId);
-        if (!games[gameId]) {
-          const chess = new Chess();
-          games[gameId] = {
-              votes: {},
-              names: {},
-              board: { fen: chess.fen(), moveHistory: [] },
-              mode: { mode: 'poll', reveal: false }
-          };
-        }
-        games[gameId].names[userId] = name || userId;
-        console.log(`User ${userId} (${games[gameId].names[userId]}) joined game ${gameId}`);
-        // Send current board, votes, and mode to new client
-        socket.emit('board_update', games[gameId].board);
-        socket.emit('vote_tally', aggregateVotes(games[gameId].votes));
-        socket.emit('mode_update', games[gameId].mode);
-    });
+  socket.on('join_game', ({ gameId, userId, name }) => {
+    socket.join(gameId);
+    console.log(`User ${userId} (${name}) joined game ${gameId} (socket: ${socket.id})`);
+    // Optionally send current game state to the new user
+    if (games[gameId]) {
+      socket.emit('board_update', {
+        fen: games[gameId].fen,
+        moveHistory: games[gameId].moveHistory,
+      });
+    }
+  });
 
-    // Student submits a vote
-    socket.on('submit_vote', ({ gameId, move, userId }) => {
-      if (!games[gameId]) return;
-      games[gameId].votes[userId] = move;
-      // Only emit vote tally if not in Observation Mode
-      if (games[gameId].mode.mode !== 'observe') {
-          const tally = aggregateVotes(games[gameId].votes);
-          io.to(gameId).emit('vote_tally', tally);
-      }
-      // In Observation Mode, do not emit vote_tally
-    });
+  socket.on('update_board', ({ gameId, fen, moveHistory }) => {
+    console.log(`update_board from socket ${socket.id} for game ${gameId}`);
+    // Save state (optional, for restoring or new joiners)
+    games[gameId] = { fen, moveHistory };
+    // Broadcast to all in the room
+    io.to(gameId).emit('board_update', { fen, moveHistory });
+  });
 
-    // Teacher broadcasts board state
-    socket.on('update_board', ({ gameId, fen, moveHistory }) => {
-        if (!games[gameId]) return;
-        games[gameId].board = { fen, moveHistory };
-        // Reset votes when board updates
-        games[gameId].votes = {};
-        io.to(gameId).emit('board_update', { fen, moveHistory });
-        io.to(gameId).emit('vote_tally', aggregateVotes({})); // Reset votes
-    });
+  socket.on('submit_vote', ({ gameId, move, userId }) => {
+    // Handle voting logic here (not implemented in this example)
+    console.log(`Vote from user ${userId} for move ${move} in game ${gameId}`);
+    // Optionally emit updated vote tally
+    // io.to(gameId).emit('vote_tally', { votes: ... });
+  });
 
-    // Teacher sets mode or triggers reveal
-    socket.on('set_mode', ({ gameId, mode, reveal }) => {
-        if (!games[gameId]) return;
-        games[gameId].mode = { mode, reveal };
-        io.to(gameId).emit('mode_update', games[gameId].mode);
-        // If entering Observation Mode, clear vote tally for students
-        if (mode === 'observe') {
-            io.to(gameId).emit('vote_tally', aggregateVotes({}));
-        } else {
-            io.to(gameId).emit('vote_tally', aggregateVotes(games[gameId].votes));
-        }
-    });
+  socket.on('set_mode', ({ gameId, mode, reveal }) => {
+    // Handle mode logic here
+    console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
+    io.to(gameId).emit('mode_update', { mode, reveal });
+  });
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-        // Optionally: Remove user votes/names if you want
-    });
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.id}`);
+    // Optionally handle user leaving game
+  });
 });
 
-// --- Helper: Aggregate votes into move -> count ---
-function aggregateVotes(votes) {
-    // votes: { userId: move }
-    const tally = {};
-    Object.values(votes).forEach(move => {
-        tally[move] = (tally[move] || 0) + 1;
-    });
-    return { votes: tally };
-}
-
+// --- START SERVER ---
 server.listen(PORT, () => {
-    console.log(`Server listening on *:${PORT}`);
+  console.log(`Server listening on *:${PORT}`);
 });
