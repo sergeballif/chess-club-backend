@@ -94,6 +94,18 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('mode_update', { mode, reveal });
   });
 
+  socket.on('retract_vote', ({ gameId, move, userId }) => {
+    if (!games[gameId] || !games[gameId].votes) return;
+    if (games[gameId].votes[move]) {
+      games[gameId].votes[move] -= 1;
+      if (games[gameId].votes[move] <= 0) {
+        delete games[gameId].votes[move];
+      }
+      io.to(gameId).emit('vote_tally', { votes: games[gameId].votes });
+      console.log('[backend] Vote retracted:', { move, votes: games[gameId].votes });
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
     // Optionally handle user leaving game
