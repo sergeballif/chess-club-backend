@@ -40,12 +40,19 @@ io.on('connection', (socket) => {
   socket.on('join_game', ({ gameId, userId, name }) => {
     socket.join(gameId);
     console.log(`User ${userId} (${name}) joined game ${gameId} (socket: ${socket.id})`);
-    // Optionally send current game state to the new user
+    // Send current game state to the new user
     if (games[gameId]) {
       socket.emit('board_update', {
         fen: games[gameId].fen,
         moveHistory: games[gameId].moveHistory,
       });
+      // NEW: Send mode/reveal to the joining user
+      socket.emit('mode_update', {
+        mode: games[gameId].mode ?? 'poll',
+        reveal: games[gameId].reveal ?? false,
+      });
+      // Also send current votes, if any
+      socket.emit('vote_tally', { votes: games[gameId].votes ?? {} });
     }
   });
 
@@ -60,7 +67,7 @@ io.on('connection', (socket) => {
   socket.on('submit_vote', ({ gameId, move, userId }) => {
     // Ensure game state exists
     if (!games[gameId]) {
-      games[gameId] = { fen: '', moveHistory: [], votes: {} };
+      games[gameId] = { fen: '', moveHistory: [], votes: {}, mode: 'poll', reveal: false };
     }
     // Initialize votes object if missing
     if (!games[gameId].votes) {
@@ -80,7 +87,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('set_mode', ({ gameId, mode, reveal }) => {
-    // Handle mode logic here
+    if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {} };
+    games[gameId].mode = mode;
+    games[gameId].reveal = reveal;
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
     io.to(gameId).emit('mode_update', { mode, reveal });
   });
