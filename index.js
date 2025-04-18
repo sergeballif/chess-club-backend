@@ -50,21 +50,33 @@ io.on('connection', (socket) => {
   });
 
   socket.on('update_board', ({ gameId, fen, moveHistory }) => {
-    console.log(`update_board from socket ${socket.id} for game ${gameId}`);
-    // Save state (optional, for restoring or new joiners)
-    games[gameId] = { fen, moveHistory };
-    // Broadcast to all in the room
+    games[gameId] = { fen, moveHistory, votes: {} }; // Reset votes!
     io.to(gameId).emit('board_update', { fen, moveHistory });
+    io.to(gameId).emit('vote_tally', { votes: {} }); // Notify clients votes are cleared
   });
 
 
 
   socket.on('submit_vote', ({ gameId, move, userId }) => {
-    // Handle voting logic here (not implemented in this example)
-    console.log(`Vote from user ${userId} for move ${move} in game ${gameId}`);
-    // Optionally emit updated vote tally
-    io.to(gameId).emit('vote_tally', { votes: currentVoteTally });
-    console.log('[backend] Emitted vote_tally:', { votes: currentVoteTally });
+    // Ensure game state exists
+    if (!games[gameId]) {
+      games[gameId] = { fen: '', moveHistory: [], votes: {} };
+    }
+    // Initialize votes object if missing
+    if (!games[gameId].votes) {
+      games[gameId].votes = {};
+    }
+    // Increment vote count for this move
+    if (!games[gameId].votes[move]) {
+      games[gameId].votes[move] = 0;
+    }
+    games[gameId].votes[move] += 1;
+  
+    // Optionally: store which user voted for what, to prevent double-voting, etc.
+  
+    // Emit updated vote tally to all clients in the game
+    io.to(gameId).emit('vote_tally', { votes: games[gameId].votes });
+    console.log('[backend] Emitted vote_tally:', { votes: games[gameId].votes });
   });
 
   socket.on('set_mode', ({ gameId, mode, reveal }) => {
