@@ -52,8 +52,10 @@ function startGameTimer(gameId) {
   const game = games[gameId];
   if (!game) return;
   clearInterval(game.timerInterval);
-  // Use the current value of timerLength (which should be set via set_mode)
-  game.timer = (typeof game.timerLength === 'number' && !isNaN(game.timerLength)) ? game.timerLength : 10;
+  // Always use the latest timerLength and revealTime from the game object, falling back to defaults if missing/invalid
+  game.timerLength = (typeof game.timerLength === 'number' && game.timerLength > 0) ? game.timerLength : 10;
+  game.revealTime = (typeof game.revealTime === 'number' && game.revealTime > 0 && game.revealTime < game.timerLength) ? game.revealTime : 3;
+  game.timer = game.timerLength;
   game.reveal = false;
   emitVoteTallyWithShowVotes(gameId); // send initial tally with showVotes
   io.to(gameId).emit('timer_update', { timer: game.timer, revealTime: game.revealTime });
@@ -72,7 +74,7 @@ function startGameTimer(gameId) {
     if (game.timer <= 0) {
       clearInterval(game.timerInterval);
       applyVotedMove(gameId);
-      // Restart timer for next move
+      // At the start of the next countdown, use the latest timerLength/revealTime values
       startGameTimer(gameId);
     }
   }, 1000);
@@ -206,9 +208,9 @@ io.on('connection', (socket) => {
     if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {} };
     games[gameId].mode = mode;
     games[gameId].reveal = reveal;
+    if (typeof timerLength === 'number' && timerLength > 0) games[gameId].timerLength = timerLength;
+    if (typeof revealTime === 'number' && revealTime > 0) games[gameId].revealTime = revealTime;
     if (mode === 'game') {
-      games[gameId].timerLength = timerLength || 10;
-      games[gameId].revealTime = revealTime || 3;
       startGameTimer(gameId);
     } else {
       clearInterval(games[gameId].timerInterval);
