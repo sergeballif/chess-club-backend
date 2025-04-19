@@ -52,7 +52,8 @@ function startGameTimer(gameId) {
   const game = games[gameId];
   if (!game) return;
   clearInterval(game.timerInterval);
-  game.timer = game.timerLength || 10;
+  // Use the current value of timerLength (which should be set via set_mode)
+  game.timer = (typeof game.timerLength === 'number' && !isNaN(game.timerLength)) ? game.timerLength : 10;
   game.reveal = false;
   emitVoteTallyWithShowVotes(gameId); // send initial tally with showVotes
   io.to(gameId).emit('timer_update', { timer: game.timer, revealTime: game.revealTime });
