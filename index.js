@@ -92,10 +92,13 @@ function applyVotedMove(gameId) {
     game.votes = {};
     game.votesByMove = {};
     game.userVotes = {};
+    // Only reset reveal if you really want to hide votes after the move
     game.reveal = false;
     io.to(gameId).emit('board_update', { fen: game.fen, moveHistory: game.moveHistory });
+    // Optionally clear votes on frontend:
     io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
-    io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
+    // Do NOT emit mode_update unless you are actually changing the mode or reveal state.
+    // io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
   }
 }
 
