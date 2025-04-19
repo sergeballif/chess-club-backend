@@ -34,6 +34,19 @@ const io = new Server(server, {
 // --- IN-MEMORY GAME STATE ---
 const games = {}; // { [gameId]: { ... } }
 
+// Helper: emit vote_tally with showVotes
+function emitVoteTallyWithShowVotes(gameId) {
+  const game = games[gameId];
+  if (!game) return;
+  const showVotes = (game.mode === 'poll' && game.reveal === true) ||
+    (game.mode === 'game' && typeof game.timer === 'number' && typeof game.revealTime === 'number' && game.timer <= game.revealTime);
+  io.to(gameId).emit('vote_tally', {
+    votes: game.votes || {},
+    votesByMove: game.votesByMove || {},
+    showVotes
+  });
+}
+
 // --- GAME TIMER LOGIC ---
 function startGameTimer(gameId) {
   const game = games[gameId];
@@ -41,16 +54,18 @@ function startGameTimer(gameId) {
   clearInterval(game.timerInterval);
   game.timer = game.timerLength || 10;
   game.reveal = false;
-  io.to(gameId).emit('timer_update', { timer: game.timer });
+  emitVoteTallyWithShowVotes(gameId); // send initial tally with showVotes
+  io.to(gameId).emit('timer_update', { timer: game.timer, revealTime: game.revealTime });
   io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
 
   game.timerInterval = setInterval(() => {
     game.timer -= 1;
-    io.to(gameId).emit('timer_update', { timer: game.timer });
+    io.to(gameId).emit('timer_update', { timer: game.timer, revealTime: game.revealTime });
 
     if (game.timer === game.revealTime && !game.reveal) {
       game.reveal = true;
       io.to(gameId).emit('mode_update', { mode: 'game', reveal: true });
+      emitVoteTallyWithShowVotes(gameId); // send tally with showVotes=true
     }
 
     if (game.timer <= 0) {
@@ -96,7 +111,7 @@ function applyVotedMove(gameId) {
     game.reveal = false;
     io.to(gameId).emit('board_update', { fen: game.fen, moveHistory: game.moveHistory });
     // Optionally clear votes on frontend:
-    io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
+    emitVoteTallyWithShowVotes(gameId);
     // Do NOT emit mode_update unless you are actually changing the mode or reveal state.
     // io.to(gameId).emit('mode_update', { mode: 'game', reveal: false });
   }
@@ -131,12 +146,9 @@ io.on('connection', (socket) => {
       mode: games[gameId].mode ?? 'poll',
       reveal: games[gameId].reveal ?? false,
     });
-    socket.emit('vote_tally', {
-      votes: games[gameId].votes ?? {},
-      votesByMove: games[gameId].votesByMove ?? {}
-    });
+    emitVoteTallyWithShowVotes(gameId);
     if (games[gameId].mode === 'game') {
-      socket.emit('timer_update', { timer: games[gameId].timer ?? games[gameId].timerLength ?? 10 });
+      socket.emit('timer_update', { timer: games[gameId].timer ?? games[gameId].timerLength ?? 10, revealTime: games[gameId].revealTime });
     }
   });
 
@@ -150,7 +162,7 @@ io.on('connection', (socket) => {
       userVotes: {}
     };
     io.to(gameId).emit('board_update', { fen, moveHistory });
-    io.to(gameId).emit('vote_tally', { votes: {}, votesByMove: {} });
+    emitVoteTallyWithShowVotes(gameId);
     if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
@@ -185,7 +197,7 @@ io.on('connection', (socket) => {
     if (!game.votesByMove[move].includes(game.userNames[userId])) game.votesByMove[move].push(game.userNames[userId]);
     game.userVotes[userId] = move;
 
-    io.to(gameId).emit('vote_tally', { votes: game.votes, votesByMove: game.votesByMove });
+    emitVoteTallyWithShowVotes(gameId);
     console.log('[backend] Emitted vote_tally:', { votes: game.votes, votesByMove: game.votesByMove });
   });
 
@@ -201,6 +213,7 @@ io.on('connection', (socket) => {
       clearInterval(games[gameId].timerInterval);
       games[gameId].reveal = reveal;
       io.to(gameId).emit('mode_update', { mode, reveal });
+      emitVoteTallyWithShowVotes(gameId);
       // Do NOT clear votes or emit vote_tally here.
     }
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
@@ -217,7 +230,7 @@ io.on('connection', (socket) => {
       if (game.votesByMove[userMove] && game.votesByMove[userMove].length === 0) delete game.votesByMove[userMove];
       delete game.userVotes[userId];
     }
-    io.to(gameId).emit('vote_tally', { votes: game.votes, votesByMove: game.votesByMove });
+    emitVoteTallyWithShowVotes(gameId);
     console.log('[backend] Vote retracted:', { move, votes: game.votes, votesByMove: game.votesByMove });
   });
 
