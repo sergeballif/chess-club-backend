@@ -10,7 +10,8 @@ const { Chess } = require('chess.js'); // npm install chess.js
 const PORT = process.env.PORT || 10000;
 const FRONTEND_ORIGINS = [
   "http://localhost:5173", // local dev
-  "[https://your-frontend-url.com](https://your-frontend-url.com)", // replace with your actual deployed frontend
+  "https://science.mom", // production domain
+  // Add more origins if needed
 ];
 
 // --- EXPRESS SETUP ---
