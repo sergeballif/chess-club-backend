@@ -32,7 +32,7 @@ const io = new Server(server, {
 });
 
 // --- IN-MEMORY GAME STATE ---
-const games = {}; // { [gameId]: { ... } }
+const games = {}; // { [gameId]: { ... , instructions: string } }
 
 // Helper: emit vote_tally with showVotes
 function emitVoteTallyWithShowVotes(gameId) {
@@ -135,7 +135,8 @@ io.on('connection', (socket) => {
         userVotes: {},
         userNames: {},
         mode: 'poll',
-        reveal: false
+        reveal: false,
+        instructions: ''
       };
     }
     // Track name
@@ -149,6 +150,7 @@ io.on('connection', (socket) => {
       mode: games[gameId].mode ?? 'poll',
       reveal: games[gameId].reveal ?? false,
     });
+    socket.emit('instructions_update', { instructions: games[gameId].instructions });
     emitVoteTallyWithShowVotes(gameId);
     if (games[gameId].mode === 'game') {
       socket.emit('timer_update', { timer: games[gameId].timer ?? games[gameId].timerLength ?? 10, revealTime: games[gameId].revealTime });
@@ -179,7 +181,8 @@ io.on('connection', (socket) => {
         userVotes: {},
         userNames: {},
         mode: 'poll',
-        reveal: false
+        reveal: false,
+        instructions: ''
       };
     }
     const game = games[gameId];
@@ -205,7 +208,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('set_mode', ({ gameId, mode, reveal, timerLength, revealTime }) => {
-    if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {} };
+    if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {}, mode: 'poll', reveal: false, instructions: '' };
     games[gameId].mode = mode;
     games[gameId].reveal = reveal;
     if (typeof timerLength === 'number' && timerLength > 0) games[gameId].timerLength = timerLength;
@@ -220,6 +223,12 @@ io.on('connection', (socket) => {
       // Do NOT clear votes or emit vote_tally here.
     }
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
+  });
+
+  socket.on('instructions_update', ({ gameId, instructions }) => {
+    if (!games[gameId]) return;
+    games[gameId].instructions = instructions || '';
+    io.to(gameId).emit('instructions_update', { instructions: games[gameId].instructions });
   });
 
   socket.on('retract_vote', ({ gameId, move, userId }) => {
