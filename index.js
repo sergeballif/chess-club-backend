@@ -158,6 +158,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Listen for reset_reveal from teacher and broadcast to all in room
+  socket.on('reset_reveal', ({ gameId }) => {
+    if (!gameId) return;
+    if (!games[gameId]) return;
+    games[gameId].reveal = false;
+    emitVoteTallyWithShowVotes(gameId);
+    io.to(gameId).emit('reset_reveal');
+  });
+
   socket.on('update_board', ({ gameId, fen, moveHistory }) => {
     games[gameId] = {
       ...games[gameId],
