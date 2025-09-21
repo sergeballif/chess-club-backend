@@ -113,7 +113,7 @@ function applyVotedMove(gameId) {
     game.userVotes = {};
     // Only reset reveal if you really want to hide votes after the move
     game.reveal = false;
-    io.to(gameId).emit('board_update', { fen: game.fen, moveHistory: game.moveHistory });
+    io.to(gameId).emit('board_update', { fen: game.fen, moveHistory: game.moveHistory, initialFen: game.initialFen });
     // Optionally clear votes on frontend:
     emitVoteTallyWithShowVotes(gameId);
     // Do NOT emit mode_update unless you are actually changing the mode or reveal state.
@@ -128,8 +128,10 @@ io.on('connection', (socket) => {
   socket.on('join_game', ({ gameId, userId, name }) => {
     socket.join(gameId);
     if (!games[gameId]) {
+      const startingFen = new Chess().fen();
       games[gameId] = {
-        fen: new Chess().fen(),
+        fen: startingFen,
+        initialFen: startingFen,
         moveHistory: [],
         votes: {},
         votesByMove: {},
@@ -146,6 +148,7 @@ io.on('connection', (socket) => {
     socket.emit('board_update', {
       fen: games[gameId].fen,
       moveHistory: games[gameId].moveHistory,
+      initialFen: games[gameId].initialFen,
     });
     socket.emit('mode_update', {
       mode: games[gameId].mode ?? 'poll',
@@ -167,24 +170,27 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('reset_reveal');
   });
 
-  socket.on('update_board', ({ gameId, fen, moveHistory }) => {
+  socket.on('update_board', ({ gameId, fen, moveHistory, initialFen }) => {
     games[gameId] = {
       ...games[gameId],
       fen,
       moveHistory,
+      initialFen: initialFen || games[gameId]?.initialFen || fen,
       votes: {},
       votesByMove: {},
       userVotes: {}
     };
-    io.to(gameId).emit('board_update', { fen, moveHistory });
+    io.to(gameId).emit('board_update', { fen, moveHistory, initialFen: games[gameId].initialFen });
     emitVoteTallyWithShowVotes(gameId);
     if (games[gameId].mode === 'game') startGameTimer(gameId);
   });
 
   socket.on('submit_vote', ({ gameId, move, userId, name }) => {
     if (!games[gameId]) {
+      const startingFen = new Chess().fen();
       games[gameId] = {
         fen: '',
+        initialFen: startingFen,
         moveHistory: [],
         votes: {},
         votesByMove: {},
@@ -218,7 +224,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('set_mode', ({ gameId, mode, reveal, timerLength, revealTime }) => {
-    if (!games[gameId]) games[gameId] = { fen: '', moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {}, mode: 'poll', reveal: false, instructions: '' };
+    if (!games[gameId]) games[gameId] = { fen: '', initialFen: new Chess().fen(), moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {}, mode: 'poll', reveal: false, instructions: '' };
     games[gameId].mode = mode;
     games[gameId].reveal = reveal;
     if (typeof timerLength === 'number' && timerLength > 0) games[gameId].timerLength = timerLength;
