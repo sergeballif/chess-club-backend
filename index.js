@@ -8,11 +8,9 @@ const { Chess } = require('chess.js'); // npm install chess.js
 
 // --- CONFIGURATION ---
 const PORT = process.env.PORT || 10000;
-const FRONTEND_ORIGINS = [
-  "http://localhost:5173", // local dev
-  "https://science.mom", // production domain
-  // Add more origins if needed
-];
+const FRONTEND_ORIGINS = process.env.FRONTEND_ORIGINS
+  ? process.env.FRONTEND_ORIGINS.split(',').map(s => s.trim())
+  : ['http://localhost:5173'];
 
 // --- EXPRESS SETUP ---
 const app = express();
