@@ -11,6 +11,12 @@ const PORT = process.env.PORT || 10000;
 const FRONTEND_ORIGINS = process.env.FRONTEND_ORIGINS
   ? process.env.FRONTEND_ORIGINS.split(',').map(s => s.trim())
   : ['http://localhost:5173'];
+const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || '';
+
+function isTeacher(data) {
+  if (!TEACHER_PASSWORD) return true;
+  return data.password === TEACHER_PASSWORD;
+}
 
 // --- EXPRESS SETUP ---
 const app = express();
@@ -160,7 +166,8 @@ io.on('connection', (socket) => {
   });
 
   // Listen for reset_reveal from teacher and broadcast to all in room
-  socket.on('reset_reveal', ({ gameId }) => {
+  socket.on('reset_reveal', ({ gameId, password }) => {
+    if (!isTeacher({ password })) return;
     if (!gameId) return;
     if (!games[gameId]) return;
     games[gameId].reveal = false;
@@ -168,7 +175,8 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('reset_reveal');
   });
 
-  socket.on('update_board', ({ gameId, fen, moveHistory, initialFen }) => {
+  socket.on('update_board', ({ gameId, fen, moveHistory, initialFen, password }) => {
+    if (!isTeacher({ password })) return;
     games[gameId] = {
       ...games[gameId],
       fen,
@@ -221,7 +229,8 @@ io.on('connection', (socket) => {
     console.log('[backend] Emitted vote_tally:', { votes: game.votes, votesByMove: game.votesByMove });
   });
 
-  socket.on('set_mode', ({ gameId, mode, reveal, timerLength, revealTime }) => {
+  socket.on('set_mode', ({ gameId, mode, reveal, timerLength, revealTime, password }) => {
+    if (!isTeacher({ password })) return;
     if (!games[gameId]) games[gameId] = { fen: '', initialFen: new Chess().fen(), moveHistory: [], votes: {}, votesByMove: {}, userVotes: {}, userNames: {}, mode: 'poll', reveal: false, instructions: '' };
     games[gameId].mode = mode;
     games[gameId].reveal = reveal;
@@ -239,7 +248,8 @@ io.on('connection', (socket) => {
     console.log(`Mode for game ${gameId} set to ${mode} (reveal: ${reveal})`);
   });
 
-  socket.on('instructions_update', ({ gameId, instructions }) => {
+  socket.on('instructions_update', ({ gameId, instructions, password }) => {
+    if (!isTeacher({ password })) return;
     if (!games[gameId]) return;
     games[gameId].instructions = instructions || '';
     io.to(gameId).emit('instructions_update', { instructions: games[gameId].instructions });

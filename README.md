@@ -30,10 +30,15 @@ No GitHub account required.
    - **Build Command**: `npm install`
    - **Start Command**: `node index.js`
    - **Instance Type**: `Free`
-5. Scroll down to **Environment Variables** and add one:
-   - **Key**: `FRONTEND_ORIGINS`
-   - **Value**: the URL of the site where you'll host the frontend (e.g. `https://yourschool.com`)
-   - If you're not sure yet, you can add this later
+5. Scroll down to **Environment Variables** and add the following:
+
+   | Key | Value | Required? |
+   |-----|-------|-----------|
+   | `FRONTEND_ORIGINS` | The URL of your frontend site (e.g. `https://yourschool.com`) | Yes |
+   | `TEACHER_PASSWORD` | A password of your choice to protect the teacher controls | Recommended |
+
+   If you're not sure of your frontend URL yet, you can add `FRONTEND_ORIGINS` later.
+
 6. Click **Create Web Service**
 
 Render will build and deploy your server. This takes about a minute.
@@ -58,13 +63,11 @@ Follow the instructions in the [chess-club-frontend](https://github.com/sergebal
 
 ---
 
-## Updating FRONTEND_ORIGINS later
-
-If you change where your frontend is hosted, update the `FRONTEND_ORIGINS` environment variable in Render:
+## Updating environment variables later
 
 1. Go to your Web Service on Render
 2. Click **Environment** in the left sidebar
-3. Update the value and click **Save Changes**
+3. Update the values and click **Save Changes**
 4. Render will automatically redeploy
 
 ---
