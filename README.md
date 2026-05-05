@@ -4,6 +4,8 @@ This is the backend server for the Chess Club app. It handles real-time communic
 
 The frontend (the files your students and teacher actually see) is distributed separately. See the [chess-club-frontend](https://github.com/sergeballif/chess-club-frontend) repo.
 
+![Chess Club App](ChessApp.gif)
+
 ---
 
 ## What you need
